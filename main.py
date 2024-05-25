@@ -67,11 +67,13 @@ class GameMutipleEnv:
             genomes[i][1].fitness = total_reward[i]
 
 class GameSingleEnv:
-    def __init__(self, env_name, EPISODES = 20, MAX_STEPS = 1000, display=False):
+    def __init__(self, env_name, EPISODES = 20, MAX_STEPS = 1000, display=False, fps=60):
         self.env_name = env_name
         render_mode = "human" if display else ""
 
         self.env = gym.make(env_name, render_mode=render_mode)
+        self.env.metadata["render_fps"] = fps
+
         self.EPISODES = EPISODES
         self.MAX_STEPS = MAX_STEPS
 
@@ -81,13 +83,18 @@ class GameSingleEnv:
 
         for ep in range(self.EPISODES):
 
-            observations, info = self.env.reset()
+            observation, info = self.env.reset()
             total_reward = 0
 
             for step in range(self.MAX_STEPS):
                 action = self.env.action_space.sample()
-                observation, rewards, terminated, truncated, info = self.env.step(action)
-                total_reward += rewards
+                observation, reward, terminated, truncated, info = self.env.step(action)
+                print(observation)
+
+                if reward == 0:
+                    reward = -1
+
+                total_reward += reward
 
                 
                 if terminated or truncated:
@@ -98,30 +105,68 @@ class GameSingleEnv:
 
         self.env.close()
 
+    def test_ai(self, genome, config, show_reward=False):
+        observation, info = self.env.reset()
+        net = neat.nn.FeedForwardNetwork.create(genome, config)
+
+        for ep in range(self.EPISODES):
+
+            observation, info = self.env.reset()
+            total_reward = 0
+
+            for step in range(self.MAX_STEPS):
+
+                output = net.activate(tuple([observation]))
+                action = output.index(max(output))
+
+                observation, reward, terminated, truncated, info = self.env.step(action)
+
+                if reward == 0:
+                    reward = -1
+
+                total_reward += reward
+
+                
+                if terminated or truncated:
+                    break
+            
+            if show_reward:
+                print(total_reward)
+
     def train_ai(self, genome, config):
         net = neat.nn.FeedForwardNetwork.create(genome, config)
 
-        observation, info = self.env.reset()
+        
         total_reward = 0
+        for ep in range(self.EPISODES):
 
-        for step in range(self.MAX_STEPS):
+            observation, info = self.env.reset()
+            for step in range(self.MAX_STEPS):
 
-            output = net.activate(tuple(observation))
-            action = output.index(max(output))
-            
-            observation, reward, terminated, truncated, info = self.env.step(action)
-            total_reward += reward
+                output = net.activate(tuple([observation]))
+                action = output.index(max(output))
                 
-            if terminated or truncated:
-                break
+                observation, reward, terminated, truncated, info = self.env.step(action)
 
-        genome.fitness = total_reward
+                if reward == 0:
+                    reward = -1
+                total_reward += reward
+                    
+                if terminated or truncated:
+                    if reward == -1:
+                        total_reward -= 9
+                    else:
+                        total_reward += 9
+
+                    break
+
+        genome.fitness = total_reward / self.EPISODES
 
 def eval_genomes(genomes, config):
     # Create Environments
     # NUM_ENV = 5
     # env = GameMutipleEnv("LunarLander-v2", display=True, MAX_STEPS=150, num_env=NUM_ENV)
-    env = GameSingleEnv("LunarLander-v2", display=True, MAX_STEPS=150)
+    env = GameSingleEnv("FrozenLake-v1", display=True, MAX_STEPS=200, fps=0, EPISODES=10)
 
     # Run genome
     for i, (genome_id, genome) in enumerate(genomes):
@@ -134,14 +179,14 @@ def eval_genomes(genomes, config):
     # print(genomes[0])
 
 def run_neat(config):
-    p = neat.Checkpointer.restore_checkpoint("neat-checkpoint-11") # load checkpoint
+    p = neat.Checkpointer.restore_checkpoint("neat-checkpoint-39") # load checkpoint
     # p = neat.Population(config)
     p.add_reporter(neat.StdOutReporter(True))
     stats = neat.StatisticsReporter()
     p.add_reporter(stats)
-    p.add_reporter(neat.Checkpointer(1))
+    p.add_reporter(neat.Checkpointer(10))
 
-    winner = p.run(eval_genomes, 3)
+    winner = p.run(eval_genomes, 60)
 
     # save the best genome
     with open("best.pickle", "wb") as f:
@@ -149,12 +194,12 @@ def run_neat(config):
 
 
 if __name__ == "__main__":
-    # Test
-    # env = GameEnv("LunarLander-v2", display=False, MAX_STEPS=500)
-    # env.run_test(show_reward=True)
+    # # Test
+    # env = GameSingleEnv("FrozenLake-v1", display=True, MAX_STEPS=200, fps=60)
+    # env.run_test(show_reward=False)
 
 
-    # NEAT
+    # config
     local_dir = os.path.dirname(__file__)
     config_path = os.path.join(local_dir, "config.txt")
 
@@ -162,4 +207,11 @@ if __name__ == "__main__":
                          neat.DefaultSpeciesSet, neat.DefaultStagnation,
                          config_path)
     
-    run_neat(config)
+    # Train with NEAT
+    # run_neat(config)
+
+    # Test
+    with open("best.pickle", "rb") as f:
+        winner = pickle.load(f)
+    env = GameSingleEnv("FrozenLake-v1", display=True, MAX_STEPS=200, fps=2)
+    env.test_ai(winner, config)
