@@ -69,9 +69,10 @@ class GameMutipleEnv:
 class GameSingleEnv:
     def __init__(self, env_name, EPISODES = 20, MAX_STEPS = 1000, display=False, fps=60):
         self.env_name = env_name
-        render_mode = "human" if display else ""
+        render_mode = "human" if display else None
 
-        self.env = gym.make(env_name, render_mode=render_mode)
+        self.env = gym.make(env_name, render_mode=render_mode, is_slippery=False)
+        self.num_states = self.env.observation_space.n
         self.env.metadata["render_fps"] = fps
 
         self.EPISODES = EPISODES
@@ -116,7 +117,7 @@ class GameSingleEnv:
 
             for step in range(self.MAX_STEPS):
 
-                output = net.activate(tuple([observation]))
+                output = net.activate(self.reshape_obs(observation))
                 action = output.index(max(output))
 
                 observation, reward, terminated, truncated, info = self.env.step(action)
@@ -143,7 +144,7 @@ class GameSingleEnv:
             observation, info = self.env.reset()
             for step in range(self.MAX_STEPS):
 
-                output = net.activate(tuple([observation]))
+                output = net.activate(self.reshape_obs(observation))
                 action = output.index(max(output))
                 
                 observation, reward, terminated, truncated, info = self.env.step(action)
@@ -162,11 +163,16 @@ class GameSingleEnv:
 
         genome.fitness = total_reward / self.EPISODES
 
+    def reshape_obs(self, obs):
+        input_obs = [0] * self.num_states
+        input_obs[obs] = 1
+        return tuple(input_obs)
+
 def eval_genomes(genomes, config):
     # Create Environments
     # NUM_ENV = 5
     # env = GameMutipleEnv("LunarLander-v2", display=True, MAX_STEPS=150, num_env=NUM_ENV)
-    env = GameSingleEnv("FrozenLake-v1", display=True, MAX_STEPS=200, fps=0, EPISODES=10)
+    env = GameSingleEnv("FrozenLake-v1", display=True, MAX_STEPS=200, fps=0, EPISODES=1)
 
     # Run genome
     for i, (genome_id, genome) in enumerate(genomes):
@@ -179,14 +185,14 @@ def eval_genomes(genomes, config):
     # print(genomes[0])
 
 def run_neat(config):
-    p = neat.Checkpointer.restore_checkpoint("neat-checkpoint-39") # load checkpoint
-    # p = neat.Population(config)
+    # p = neat.Checkpointer.restore_checkpoint("neat-checkpoint-39") # load checkpoint
+    p = neat.Population(config)
     p.add_reporter(neat.StdOutReporter(True))
     stats = neat.StatisticsReporter()
     p.add_reporter(stats)
     p.add_reporter(neat.Checkpointer(10))
 
-    winner = p.run(eval_genomes, 60)
+    winner = p.run(eval_genomes, 10)
 
     # save the best genome
     with open("best.pickle", "wb") as f:
@@ -194,7 +200,7 @@ def run_neat(config):
 
 
 if __name__ == "__main__":
-    # # Test
+    # Test
     # env = GameSingleEnv("FrozenLake-v1", display=True, MAX_STEPS=200, fps=60)
     # env.run_test(show_reward=False)
 
@@ -208,10 +214,10 @@ if __name__ == "__main__":
                          config_path)
     
     # Train with NEAT
-    # run_neat(config)
+    run_neat(config)
 
     # Test
     with open("best.pickle", "rb") as f:
         winner = pickle.load(f)
-    env = GameSingleEnv("FrozenLake-v1", display=True, MAX_STEPS=200, fps=2)
+    env = GameSingleEnv("FrozenLake-v1", display=True, MAX_STEPS=200, fps=5)
     env.test_ai(winner, config)
